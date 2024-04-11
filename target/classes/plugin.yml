@@ -1,0 +1,8 @@
+name: AuthyK
+version: '1.0-SNAPSHOT'
+main: org.koy.authyk.AuthyK
+api-version: '1.20'
+commands:
+  register:
+  login:
+  reload:
