@@ -14,6 +14,7 @@ import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerChatEvent;
 
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
@@ -36,11 +37,12 @@ public class AuthyK extends JavaPlugin implements CommandExecutor, Listener {
     private Set<String> loggedInPlayers = new HashSet<>();
     private Map<String, Integer> loginTasks = new HashMap<>();
 
+    private Map<String, GameMode> lastGameModes = new HashMap<>();
+
     @Override
     public void onEnable() {
         this.getCommand("register").setExecutor(this);
         this.getCommand("login").setExecutor(this);
-        this.getCommand("reload").setExecutor(this);
         this.getServer().getPluginManager().registerEvents(this, this);
 
         try {
@@ -124,6 +126,20 @@ public class AuthyK extends JavaPlugin implements CommandExecutor, Listener {
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
         loggedInPlayers.remove(player.getName()); // Desloga o jogador
+        lastGameModes.put(player.getName(), player.getGameMode());
+    }
+
+    @EventHandler
+    public void onPlayerChat(PlayerChatEvent event) {
+        Player player = event.getPlayer();
+        // Se o jogador não estiver logado, cancela o evento do chat
+        if (!loggedInPlayers.contains(player.getName())) {
+            String msg = event.getMessage().toLowerCase();
+            // Permite apenas os comandos /register e /login
+            if (!msg.startsWith("/register") && !msg.startsWith("/login")) {
+                event.setCancelled(true);
+            }
+        }
     }
 
     @Override
@@ -132,6 +148,18 @@ public class AuthyK extends JavaPlugin implements CommandExecutor, Listener {
             Player player = (Player) sender;
             try {
                 if (command.getName().equalsIgnoreCase("register")) {
+                    PreparedStatement checkStatement = connection.prepareStatement("SELECT username FROM players WHERE username = ?");
+                    checkStatement.setString(1, player.getName());
+                    ResultSet checkResult = checkStatement.executeQuery();
+                    if (checkResult.next()) {
+                        player.sendMessage(ChatColor.RED + "" + ChatColor.BOLD + "Você já está registrado!");
+                        checkResult.close();
+                        checkStatement.close();
+                        return true;
+                    }
+                    checkResult.close();
+                    checkStatement.close();
+
                     if (args.length == 2 && args[0].equals(args[1])) {
                         SecureRandom random = new SecureRandom();
                         byte[] salt = new byte[16];
@@ -147,10 +175,17 @@ public class AuthyK extends JavaPlugin implements CommandExecutor, Listener {
                         loggedInPlayers.add(player.getName());
                         player.setInvisible(false);
                         this.getServer().getScheduler().cancelTask(loginTasks.get(player.getName()));
-                        player.setGameMode(GameMode.SURVIVAL);
+                        // Restaura o último GameMode do jogador
+                        GameMode lastGameMode = lastGameModes.getOrDefault(player.getName(), GameMode.SURVIVAL);
+                        player.setGameMode(lastGameMode);
                     }
                     return true;
                 } else if (command.getName().equalsIgnoreCase("login")) {
+                    if (loggedInPlayers.contains(player.getName())) {
+                        player.sendMessage(ChatColor.RED + "" + ChatColor.BOLD + "Você já está logado!");
+                        return true;
+                    }
+
                     if (args.length == 1) {
                         PreparedStatement statement = connection.prepareStatement("SELECT salt, password FROM players WHERE username = ?");
                         statement.setString(1, player.getName());
@@ -164,7 +199,9 @@ public class AuthyK extends JavaPlugin implements CommandExecutor, Listener {
                                 loggedInPlayers.add(player.getName());
                                 player.setInvisible(false);
                                 this.getServer().getScheduler().cancelTask(loginTasks.get(player.getName()));
-                                player.setGameMode(GameMode.SURVIVAL);
+                                // Restaura o último GameMode do jogador
+                                GameMode lastGameMode = lastGameModes.getOrDefault(player.getName(), GameMode.SURVIVAL);
+                                player.setGameMode(lastGameMode);
                             } else {
                                 player.sendMessage(ChatColor.RED + "" + ChatColor.BOLD + "Senha incorreta!");
                             }
@@ -173,10 +210,6 @@ public class AuthyK extends JavaPlugin implements CommandExecutor, Listener {
                         statement.close();
                     }
                     return true;
-                } else if (command.getName().equalsIgnoreCase("reload")) {
-                    this.reloadConfig();
-                    player.sendMessage("Configuração recarregada!");
-                    return true;
                 }
             } catch (Exception e) {
                 e.printStackTrace();
@@ -184,6 +217,7 @@ public class AuthyK extends JavaPlugin implements CommandExecutor, Listener {
         }
         return false;
     }
+
 
     private String hashPassword(String password, byte[] salt) throws Exception {
         KeySpec spec = new PBEKeySpec(password.toCharArray(), salt, 65536, 128);

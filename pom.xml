@@ -6,7 +6,7 @@
 
   <groupId>org.koy</groupId>
   <artifactId>AuthyK</artifactId>
-  <version>1.0-SNAPSHOT</version>
+  <version>1.0.1-SNAPSHOT</version>
   <packaging>jar</packaging>
 
   <name>AuthyK</name>
